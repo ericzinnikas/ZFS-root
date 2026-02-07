@@ -58,7 +58,7 @@ variable "discenc" {
 variable "ubuntu_live_iso_src" {
   description = "URI for the live ISO - can be a URL or local file:/// location"
   type = string
-  default = "https://releases.ubuntu.com/24.04.2"
+  default = "https://releases.ubuntu.com"
 }
 
 variable "disk_size" {
@@ -90,13 +90,29 @@ variable "config_overrides" {
 }
 
 locals {
-  output_dir = "packer-zfsroot-${local.timestamp}"
+  # Auto-derive ubuntu_version_name from ubuntu_version if not explicitly set
+  derived_version_name = (
+    var.ubuntu_version_name != "" ? var.ubuntu_version_name :
+    # Auto-derive based on version number
+    length(regexall("^25\\.10", var.ubuntu_version)) > 0 ? "questing" :
+    length(regexall("^25\\.04", var.ubuntu_version)) > 0 ? "plucky" :
+    length(regexall("^24\\.04", var.ubuntu_version)) > 0 ? "noble" :
+    length(regexall("^22\\.04", var.ubuntu_version)) > 0 ? "jammy" :
+    length(regexall("^20\\.04", var.ubuntu_version)) > 0 ? "focal" :
+    length(regexall("^18\\.04", var.ubuntu_version)) > 0 ? "bionic" :
+    # If no match, this will cause an error which is better than silently failing
+    "UNKNOWN_VERSION_${var.ubuntu_version}"
+  )
+
+  # Include variant in output directory to allow parallel builds
+  output_dir = "packer-${local.variant}-${local.timestamp}"
   timestamp  = formatdate("YYYY-MM-DD-hhmm", timestamp())
-  ubuntu_live_iso = "${var.ubuntu_live_iso_src}/ubuntu-${var.ubuntu_version}-live-server-amd64.iso"
+  ubuntu_live_iso = "${var.ubuntu_live_iso_src}/${local.derived_version_name}/ubuntu-${var.ubuntu_version}-live-server-amd64.iso"
+  variant = "${local.derived_version_name}-${var.discenc}"
 }
 
 source "qemu" "ubuntu" {
-  vm_name           = "packer-zfsroot-${local.timestamp}.qcow2"
+  vm_name           = "packer-${local.variant}-${local.timestamp}.qcow2"
 
   iso_url           = "${local.ubuntu_live_iso}"
   iso_checksum      = "file:https://releases.ubuntu.com/${var.ubuntu_version}/SHA256SUMS"
@@ -186,8 +202,8 @@ build {
 
   # Push the debug output back to host machine
   provisioner "file" {
-    source      = "/tmp/ZFS-setup-packerci.log"
-    destination = "${var.output_prefix}${local.output_dir}/ZFS-setup-packerci.log"
+    source      = "/tmp/ZFS-setup-${local.variant}.log"
+    destination = "${var.output_prefix}${local.output_dir}/build.log"
     direction   = "download"
   }
 
