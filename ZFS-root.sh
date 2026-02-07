@@ -109,19 +109,10 @@ preflight() {
 
     while getopts "dpc:" opt ; do
         case $opt in
-            d)
-                DEBUG=true
-                ;;
-            p)
-                PACKERCI=true
-                ;;
-            c)
-                CONFIG_FILE=$OPTARG
-                ;;
-            \?)
-                echo "Invalid option: $OPTARG" >&2
-                exit 1
-                ;;
+            d)  DEBUG=true ;;
+            p)  PACKERCI=true ;;
+            c)  CONFIG_FILE=$OPTARG ;;
+            \?) echo "Invalid option: $OPTARG" >&2 exit 1 ;;
         esac
     done
 
@@ -151,8 +142,8 @@ preflight() {
         else
             # CONFIG_FILE not set  PACKER_CI not set
             #   Attempt default main config, error if not available
-            if [[ -e ${CONFIG_FILE} ]] ; then
-                . ./${CONFIG_FILE}
+            if [[ -e ZFS-root.conf ]] ; then
+                . ./ZFS-root.conf
                 echo "Loaded Main config ZFS-root.conf"
             else
                 echo "No valid config file found: ZFS-root.conf"
