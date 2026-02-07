@@ -190,6 +190,9 @@ preflight() {
     # Use zswap compressed page cache in front of swap ? https://wiki.archlinux.org/index.php/Zswap
     # Only used for swap partition (encrypted or not)
     USE_ZSWAP="zswap.enabled=1 zswap.compressor=lz4 zswap.max_pool_percent=25"
+
+    # Ensure apt-get commands don't try talking to the user
+    export DEBIAN_FRONTEND=noninteractive
 } # preflight()
 
 
@@ -220,7 +223,7 @@ setup_cacher() {
     echo "--------------------------------------------------------------------------------"
     echo "${FUNCNAME[0]}"
 
-    apt-get -qq update
+    apt-get -qq --yes update
     # We need libnss-mdns to resolve names like bondi.local etc.
     apt-get -qq --no-install-recommends --yes install libnss-mdns wget gpg
 
@@ -1540,6 +1543,7 @@ prep_setup() {
 		export ZFSBOOTMENU_CMDLINE=${ZFSBOOTMENU_CMDLINE}
 		export USE_ZSWAP="${USE_ZSWAP}"
 		export WIPE_FRESH="${WIPE_FRESH}"
+		export DEBIAN_FRONTEND=noninteractive
 
 		[[ -v DEBUG ]] && set -x
 		[[ -v PACKERCI ]] && set -x
@@ -1691,7 +1695,7 @@ cat >> ${ZFSBUILD}/root/Setup.sh << '__EOF__'
     [ -e /usr/lib/systemd/system/tmp.mount ] && systemctl enable /usr/lib/systemd/system/tmp.mount
 
     ln -s /proc/self/mounts /etc/mtab
-    apt-get -qq update
+    apt-get --yes update
     apt-get -qq --yes --no-install-recommends install software-properties-common debconf-utils mdadm
 
     # Preseed a few things
@@ -1701,8 +1705,8 @@ cat >> ${ZFSBUILD}/root/Setup.sh << '__EOF__'
 		zfs-dkms        zfs-dkms/note-incompatible-licenses  note
 		# tzdata
 		tzdata  tzdata/Zones/US                         select Eastern
-		tzdata  tzdata/Zones/America                    select New_York
-		tzdata  tzdata/Areas                            select US
+		tzdata  tzdata/Zones/America                    select Denver
+		tzdata  tzdata/Areas                            select America
 		console-setup   console-setup/codeset47         select  # Latin1 and Latin5 - western Europe and Turkic languages
 	EOFPRE
     cat /tmp/selections | debconf-set-selections
