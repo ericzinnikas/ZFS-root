@@ -109,6 +109,34 @@ locals {
   timestamp  = formatdate("YYYY-MM-DD-hhmm", timestamp())
   ubuntu_live_iso = "${var.ubuntu_live_iso_src}/${local.derived_version_name}/ubuntu-${var.ubuntu_version}-live-server-amd64.iso"
   variant = "${local.derived_version_name}-${var.discenc}"
+
+  # Calculate total number of disks (1 primary + additional)
+  total_disks = 1 + length(var.additional_disks)
+
+  # Validate and constrain raidlevel based on disk count
+  # NOTE: Does not *enforce* a raidlevel - if you don't set mirror/raidz1
+  #       then no raidlevel is set, so each disk is a vdev alone, with no
+  #       redundancy at all
+  actual_raidlevel = (
+    local.total_disks == 1 ? "" :
+    local.total_disks == 2 ? (var.raidlevel == "mirror" ? "mirror" : "") :
+    # 3 or more disks
+    (var.raidlevel == "mirror" || var.raidlevel == "raidz1" ? var.raidlevel : "")
+  )
+
+  # Generate the list of all disk files
+  # Primary disk (index 0)
+  primary_disk = "${var.output_prefix}${local.output_dir}/packer-${local.variant}-${local.timestamp}.qcow2"
+
+  # Additional disks (indices 1, 2, 3, ...)
+  # QEMU names them: base.qcow2-1, base.qcow2-2, etc.
+  additional_disk_files = [
+    for idx in range(length(var.additional_disks)) :
+    "${var.output_prefix}${local.output_dir}/packer-${local.variant}-${local.timestamp}.qcow2-${idx + 1}"
+  ]
+
+  # All disks combined
+  all_disk_files = concat([local.primary_disk], local.additional_disk_files)
 }
 
 source "qemu" "ubuntu" {
@@ -218,16 +246,21 @@ build {
   }
 
   post-processor "artifice" {
-    files = [
-      "${var.output_prefix}${local.output_dir}/ZFS-setup-packerci.log",
-      "${var.output_prefix}${local.output_dir}/manifest.json", 
-      "${var.output_prefix}${local.output_dir}/packer-zfsroot-${local.timestamp}.qcow2"
-    ]
+    files = concat(
+      [
+        "${var.output_prefix}${local.output_dir}/build.log",
+        "${var.output_prefix}${local.output_dir}/manifest.json"
+      ],
+      local.all_disk_files
+    )
   }
-  # Finally Generate a Checksum (SHA256) which can be used for further stages in the `output` directory
+
+  # Generate checksums for all disk files
+  # Note: The checksum post-processor processes each file from artifice
+  # and creates a checksum for each one
   post-processor "checksum" {
       checksum_types      = [ "sha256" ]
-      output              = "${var.output_prefix}${local.output_dir}/packer-zfsroot-${local.timestamp}.qcow2.{{.ChecksumType}}"
+      output              = "${var.output_prefix}${local.output_dir}/packer-${local.variant}-${local.timestamp}.{{.ChecksumType}}.checksum"
       keep_input_artifact = true
   }
 }
