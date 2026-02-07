@@ -63,7 +63,7 @@ variable "ubuntu_live_iso_src" {
 
 variable "disk_size" {
   type    = string
-  default = "10G"
+  default = "5G"
 }
 
 variable "additional_disks" {
@@ -124,7 +124,7 @@ source "qemu" "ubuntu" {
   # Set machine type to q35 for secureboot
   # See machine_type in https://developer.hashicorp.com/packer/integrations/hashicorp/qemu/latest/components/builder/qemu
   qemuargs = [
-    ["-enable-kvm"], 
+    ["-enable-kvm"],
     ["-machine", "pc"],
     ["-cpu", "host,+nx,+pae"]
   ]
@@ -164,7 +164,7 @@ source "qemu" "ubuntu" {
   boot_command = [
     "<wait><enter><wait60>",
     "<leftCtrlOn>z<leftCtrlOff>",
-    "<wait><enter><wait>", 
+    "<wait><enter><wait>",
     "ls -la /dev/vd* /dev/disk/by-id<enter><wait>",
     "echo ubuntu-server:packer | chpasswd<enter>"
   ]
@@ -172,7 +172,7 @@ source "qemu" "ubuntu" {
 
 build {
   sources = ["source.qemu.ubuntu"]
-  
+
   # Get the ZFS-root.sh script and packer config into place
   provisioner "file" {
     source      = "ZFS-root.sh"
@@ -186,6 +186,11 @@ build {
 
   provisioner "file" {
     source      = "./95zfs-rootflags-fix"
+    destination = "/tmp/"
+  }
+
+  provisioner "file" {
+    sources = ["logo.jpg", "logo_sm.jpg", "os_linux.png"]
     destination = "/tmp/"
   }
 
@@ -209,7 +214,7 @@ build {
 
   post-processor "manifest" {
     output     = "${var.output_prefix}${local.output_dir}/manifest.json"
-    strip_path = true 
+    strip_path = true
   }
 
   post-processor "artifice" {
