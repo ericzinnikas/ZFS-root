@@ -137,6 +137,34 @@ locals {
 
   # All disks combined
   all_disk_files = concat([local.primary_disk], local.additional_disk_files)
+
+  # Build the default config overrides (these are set automatically)
+  default_overrides = {
+    DISCENC      = var.discenc
+    MYHOSTNAME   = "${local.derived_version_name}-${var.discenc}"
+    POOLNAME     = local.derived_version_name
+    SUITE        = local.derived_version_name
+    RAIDLEVEL    = local.actual_raidlevel
+  }
+
+  # Merge defaults with user overrides (user overrides win)
+  final_overrides = merge(local.default_overrides, var.config_overrides)
+
+  # Generate the overlay.conf content as a single shell script
+  # We build it as one command that creates the entire file
+  overlay_commands = [
+    # Create file with all variables in one command using here-doc
+    <<-EOT
+    cat > /tmp/overlay.conf << 'OVERLAY_EOF'
+    %{for key, value in local.final_overrides~}
+    ${key}="${value}"
+    %{endfor~}
+    OVERLAY_EOF
+    EOT
+    ,
+    # Display the file
+    "cat /tmp/overlay.conf"
+  ]
 }
 
 source "qemu" "ubuntu" {
@@ -208,8 +236,8 @@ build {
   }
 
   provisioner "file" {
-    source      = "ZFS-root.conf.packerci"
-    destination = "/tmp/ZFS-root.conf.packerci"
+    source      = "${var.config_file}"
+    destination = "/tmp/base.conf"
   }
 
   provisioner "file" {
@@ -222,14 +250,25 @@ build {
     destination = "/tmp/"
   }
 
+  # This writes the config overrides to overlay.conf
+  # Combines automatic defaults (DISCENC, SUITE, etc.) with user --set overrides
+  provisioner "shell" {
+    inline = local.overlay_commands
+  }
+
   # Actually run the ZFS-root.sh script to build the system as root
   # Put the debug output somewhere that ubuntu-server user can reach
   provisioner "shell" {
     execute_command = "echo 'packer' | sudo -S sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "cd /tmp",
-      "./ZFS-root.sh -p",
-      "mv /root/ZFS-setup.log /tmp/ZFS-setup-packerci.log"
+      # Merge base and overlay (overlay wins if sourced last, or just cat them)
+      "cat base.conf overlay.conf > final.conf",
+      "chmod +x ZFS-root.sh",
+      # Run with explicit config and packer mode
+      "./ZFS-root.sh -p -c final.conf",
+      # Rename log to include variant for host-side clarity
+      "mv /root/ZFS-setup.log /tmp/ZFS-setup-${local.variant}.log"
     ]
   }
 
