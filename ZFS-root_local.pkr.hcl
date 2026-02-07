@@ -34,9 +34,27 @@ variable "ubuntu_version" {
   default = "24.04.2"
 }
 
+# Optional - will be auto-derived from ubuntu_version if not provided
+variable "ubuntu_version_name" {
+  description = "Which release name of Ubuntu to boot for the build (auto-derived if empty)"
+  type = string
+  default = ""
+}
+
+variable "discenc" {
+  description = "Encryption mode: NOENC, ZFSENC, LUKS"
+  type        = string
+  default     = "NOENC"
+}
+
 # Full path/source for ubuntu live iso image
-# Can be pulled from Ubuntu, or reference a local copy in some local dir
+# Can be downloaded from Ubuntu, or reference a local copy in some local dir
 # For example  file:///home/myuser/ISOs
+# For local ISOs, each ISO should be in the appropriate release-named dir
+#              ⬇⬇⬇⬇⬇
+#   /qemu/ISOs/focal/ubuntu-20.04.5-live-server-amd64.iso
+#   /qemu/ISOs/jammy/ubuntu-22.04.5-live-server-amd64.iso
+#              ⬆️⬆️⬆️⬆️⬆️
 variable "ubuntu_live_iso_src" {
   description = "URI for the live ISO - can be a URL or local file:/// location"
   type = string
@@ -51,6 +69,24 @@ variable "disk_size" {
 variable "additional_disks" {
   type    = list(string)
   default = []
+}
+
+variable "raidlevel" {
+  type    = string
+  default = ""
+  description = "RAID level for multiple disks: mirror or raidz1"
+}
+
+variable "config_file" {
+  description = "Config preseed file for ZFS-root.sh - defaults to ZFS-root.conf.packerci"
+  type    = string
+  default = "ZFS-root.conf.packerci"
+}
+
+variable "config_overrides" {
+  description = "Map of config variables to override in overlay.conf (e.g., {MYHOSTNAME='myhost', POOLNAME='zroot'})"
+  type    = map(string)
+  default = {}
 }
 
 locals {
@@ -91,6 +127,8 @@ source "qemu" "ubuntu" {
   format            = "qcow2"
 
   # For additional disks, use disk_additional_size(s) - see ZFS-root_local.vars.hcl
+  # additional_disks  = ["5G"]  # for two total disks (one primary + one additional etc.)
+  # For 3x disks total via cmdline  you can call packer with   packer build -var 'additional_disks=["5G","5G"]' ...
   disk_additional_size  = var.additional_disks
 
   http_directory    = "./"
@@ -100,7 +138,7 @@ source "qemu" "ubuntu" {
   ssh_password      = "packer"
   ssh_wait_timeout  = "30m"
   shutdown_command  = "sudo poweroff -f"  # force to avoid "remove installation media" msg
-  headless          = "${var.headless}"   # NOTE: set this to true when using in CI Pipelines
+  headless          = "${var.headless}"   # NOTE: set this to true when using in CI Pipelines or docker
 
   boot_wait         = "10s"
   # Trigger the "Try Ubuntu" right away, then wait 60secs to get to installer
