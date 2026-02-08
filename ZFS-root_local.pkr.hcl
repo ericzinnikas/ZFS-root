@@ -77,6 +77,12 @@ variable "raidlevel" {
   description = "RAID level for multiple disks: mirror or raidz1"
 }
 
+variable "secureboot" {
+  type    = bool
+  default = false
+  description = "Enable SecureBoot (requires SecureBoot-enabled OVMF firmware)"
+}
+
 variable "config_file" {
   description = "Config preseed file for ZFS-root.sh - defaults to ZFS-root.conf.packerci"
   type    = string
@@ -103,6 +109,13 @@ locals {
     # If no match, this will cause an error which is better than silently failing
     "UNKNOWN_VERSION_${var.ubuntu_version}"
   )
+
+  # SecureBoot-aware OVMF firmware paths and machine type
+  ovmf_code = var.secureboot ? "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd" : "/usr/share/OVMF/OVMF_CODE_4M.fd"
+  ovmf_vars = "/usr/share/OVMF/OVMF_VARS_4M.fd"  # We're setting up our own keys and adding the Microsoft keys in ZFS-root.sh
+  # For pre-installed Microsoft keys use this
+  # ovmf_vars = var.secureboot ? "/usr/share/OVMF/OVMF_VARS_4M.ms.fd" : "/usr/share/OVMF/OVMF_VARS_4M.fd"
+  machine_type = var.secureboot ? "q35,smm=on" : "pc"
 
   # Include variant in output directory to allow parallel builds
   output_dir = "packer-${local.variant}-${local.timestamp}"
@@ -154,13 +167,14 @@ locals {
   # We build it as one command that creates the entire file
   overlay_commands = [
     # Create file with all variables in one command using here-doc
+    # Be SURE to use hard-TABs as first chars for indented heredoc
     <<-EOT
-    cat > /tmp/overlay.conf << 'OVERLAY_EOF'
-    %{for key, value in local.final_overrides~}
-    ${key}="${value}"
-    %{endfor~}
-    OVERLAY_EOF
-    EOT
+		cat > /tmp/overlay.conf <<-'OVERLAY_EOF'
+		%{for key, value in local.final_overrides~}
+		${key}="${value}"
+		%{endfor~}
+		OVERLAY_EOF
+		EOT
     ,
     # Display the file
     "cat /tmp/overlay.conf"
@@ -177,16 +191,16 @@ source "qemu" "ubuntu" {
   cpus              = 2
   memory            = 2048
   accelerator       = "kvm"
-  # Set machine type to q35 for secureboot
+  # Machine type: q35 required for SecureBoot, pc for standard boot
   # See machine_type in https://developer.hashicorp.com/packer/integrations/hashicorp/qemu/latest/components/builder/qemu
   qemuargs = [
     ["-enable-kvm"],
-    ["-machine", "pc"],
+    ["-machine", local.machine_type],
     ["-cpu", "host,+nx,+pae"]
   ]
 
-  efi_firmware_code = "/usr/share/OVMF/OVMF_CODE_4M.fd"
-  efi_firmware_vars = "/usr/share/OVMF/OVMF_VARS_4M.fd"
+  efi_firmware_code = local.ovmf_code
+  efi_firmware_vars = local.ovmf_vars
   efi_boot          = true
 
   # NOTE: output_prefix MUST have trailing slash in var definition
@@ -277,6 +291,22 @@ build {
     source      = "/tmp/ZFS-setup-${local.variant}.log"
     destination = "${var.output_prefix}${local.output_dir}/build.log"
     direction   = "download"
+  }
+
+  # Create a metadata file with build settings for easy detection
+  provisioner "shell-local" {
+    # Be SURE to use hard-TABs as first chars for indented heredoc
+    inline = [
+      "cat > ${var.output_prefix}${local.output_dir}/build-metadata.txt <<-'METADATA_EOF'",
+				"BUILD_DATE=${local.timestamp}",
+				"UBUNTU_VERSION=${var.ubuntu_version}",
+				"UBUNTU_NAME=${local.derived_version_name}",
+				"DISCENC=${var.discenc}",
+				"SECUREBOOT=${var.secureboot}",
+				"RAIDLEVEL=${local.actual_raidlevel}",
+				"TOTAL_DISKS=${local.total_disks}",
+			"METADATA_EOF"
+    ]
   }
 
   post-processor "manifest" {

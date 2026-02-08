@@ -17,6 +17,7 @@ Options:
   --disk-size VALUE         (e.g. 5G)
   --disks VALUE             (e.g. 3) [optional total; for multiple disks]
   --raidlevel VALUE         (e.g. raidz1 or mirror) only for multiple disks
+  --secureboot              Enable SecureBoot (requires q35 machine and secboot OVMF firmware)
   --iso-src VALUE           (e.g. file:///qemu/ISOs) defaults to download
   --set KEY=VALUE           Override config variables (can be used multiple times)
   --help                    Show this help
@@ -42,6 +43,7 @@ For local ISOs, each ISO should be in the appropriate release-named dir
   --disk-size 5G \
   --disks 2 \
   --raidlevel mirror \
+  --secureboot \
   --iso-src file:///qemu/ISOs \
   --set MYHOSTNAME=myserver \
   --set POOLNAME=zroot
@@ -66,6 +68,7 @@ OUT_PREFIX="${OUT_PREFIX:-${QEMU_ROOT}/builds/}"        # Output dir for packer 
 DISK_SIZE="${DISK_SIZE:-5G}"                            # Disk size
 DISKS="${DISKS:-}"                                      # Total number of disks if not 1
 RAIDLEVEL="${RAIDLEVEL:-}"                              # Raid type for multi-disk (mirror, raidz1)
+SECUREBOOT="${SECUREBOOT:-}"                            # Enable SecureBoot
 ISO_SRC="${ISO_SRC:-}"                                  # Location of bootable ISOs (eg. file///qemu/ISOs)
 CONFIG_OVERRIDES=()                                     # Array to collect --set KEY=VALUE pairs
 
@@ -80,15 +83,16 @@ while [[ $# -gt 0 ]]; do
         --disk-size)        DISK_SIZE="$2"; shift 2 ;;
         --disks)            DISKS="$2"; shift 2 ;;
         --raidlevel)        RAIDLEVEL="$2"; shift 2 ;;
+        --secureboot)       SECUREBOOT="true"; shift ;;
         --iso-src)          ISO_SRC="$2"; shift 2 ;;
-        --set)              
+        --set)
             # Validate KEY=VALUE format
             if [[ ! "$2" =~ ^[A-Z_][A-Z0-9_]*=.+$ ]]; then
                 echo "Error: --set requires KEY=VALUE format (e.g., MYHOSTNAME=myhost)" >&2
                 exit 1
             fi
             CONFIG_OVERRIDES+=("$2")
-            shift 2 
+            shift 2
             ;;
         --help|-h)          usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
@@ -144,6 +148,7 @@ add_var "ubuntu_version_name" "$NAME"
 add_var "output_prefix"       "$OUT_PREFIX"
 add_var "disk_size"           "$DISK_SIZE"
 add_var "raidlevel"           "$RAIDLEVEL"
+add_var "secureboot"          "$SECUREBOOT"
 add_var "ubuntu_live_iso_src" "$ISO_SRC"
 add_var "config_file"         "$CONFIG_FILE"
 
@@ -156,7 +161,7 @@ if [[ ${#CONFIG_OVERRIDES[@]} -gt 0 ]]; then
         # Split KEY=VALUE
         key="${CONFIG_OVERRIDES[$i]%%=*}"
         value="${CONFIG_OVERRIDES[$i]#*=}"
-        
+
         # Escape quotes in value
         if [[ -n "${DOCKER_RUN}" ]]; then
             # Docker needs extra escaping for sh -c processing
@@ -167,7 +172,7 @@ if [[ ${#CONFIG_OVERRIDES[@]} -gt 0 ]]; then
             escaped_value="${value//\"/\\\"}"
             quote="\""
         fi
-        
+
         # Add to map with quoted keys and values (using colon for JSON-style syntax)
         if [[ $i -eq 0 ]]; then
             overrides_map+="${quote}${key}${quote}:${quote}${escaped_value}${quote}"
@@ -176,9 +181,9 @@ if [[ ${#CONFIG_OVERRIDES[@]} -gt 0 ]]; then
         fi
     done
     overrides_map+="}"
-    
+
     packer_args+=( -var "config_overrides=${overrides_map}" )
-    
+
     echo "Config overrides: ${CONFIG_OVERRIDES[*]}"
 fi
 
@@ -196,7 +201,7 @@ check_disks() {
             echo "Error: DISKS must be a positive integer, got: ${DISKS}" >&2
             exit 1
         fi
-        
+
         # Only process if DISKS > 1
         if [[ "${DISKS}" -gt 1 ]]; then
             # Check that DISK_SIZE is set
@@ -204,10 +209,10 @@ check_disks() {
                 echo "Error: DISK_SIZE must be set when using multiple disks" >&2
                 exit 1
             fi
-            
+
             # Calculate number of additional disks
             additional_count=$((DISKS - 1))
-            
+
             # Build the array string with escaped quotes for sh -c
             disk_array=""
             for ((i=0; i<additional_count; i++)); do
@@ -217,10 +222,10 @@ check_disks() {
                     disk_array="${disk_array},\\\"${DISK_SIZE}\\\""
                 fi
             done
-            
+
             # Add to packer_args
             packer_args+=( -var "additional_disks=[${disk_array}]" )
-            
+
             echo "Adding ${additional_count} additional disk(s) of size ${DISK_SIZE}"
         fi
     fi
@@ -242,7 +247,7 @@ packer_init_docker() {
 packer_docker() {
     # Run packer in a docker container
     docker_args=( -v /usr/share/OVMF:/usr/share/OVMF )
-    
+
     # If ISO_SRC is not defined, then the packer config will default to pulling
     # the iso from https://releases.ubuntu.com
     if [[ -n "${ISO_SRC}" ]] && [[ "${ISO_SRC}" =~ "file:///" ]] ; then

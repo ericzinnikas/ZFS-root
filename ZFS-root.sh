@@ -774,8 +774,8 @@ query_secureboot() {
     #   mv go/bin/sbctl /usr/local/bin
 
     # If UEFI SecureBoot should be enabled - NOTE: only available for noble/24.04
-    if [[ ! -v SECUREBOOT || "$SECUREBOOT" != "n" ]]; then
-        if [[ -d /sys/firmware/efi && "${SUITE}" == "noble" ]] ; then
+    if [[ ! -v SECUREBOOT ]] || [[ "$SECUREBOOT" != "n" ]]; then
+        if [[ -d /sys/firmware/efi ]] && [[ "${SUITE}" == "noble" ]] ; then
             # Create apt sources for sbctl
             curl -fsSL https://download.opensuse.org/repositories/home:jloeser:secureboot/xUbuntu_${SUITE_NUM}/Release.key | gpg --dearmor | sudo tee /usr/share/keyrings/secureboot.gpg > /dev/null
 
@@ -796,6 +796,8 @@ query_secureboot() {
 
             # Are we in setup mode for SecureBoot ?
             SETUPMODE=$(sbctl status --json | jq '.setup_mode')
+            echo "SETUPMODE is $SETUPMODE"
+            sbctl setup --migrate   # Sometimes need to update
             if [ "${SETUPMODE}" == "true" ] ; then
                 if [[ ! -v SECUREBOOT ]] ; then
                     SECUREBOOT=$(whiptail --title "UEFI SecureBoot is available" --yesno "Should UEFI SecureBoot be enabled ?" 8 60 \
@@ -806,19 +808,28 @@ query_secureboot() {
                 fi
             else
                 # Show current SecureBoot config, set SECUREBOOT var to n so we don't try to install in the chroot
-                SBCTL_STATUS=$(sbctl status)
-                whiptail --title "System UEFI not in setup mode" --msgbox "SecureBoot config in bios must be in setup mode\n\nFor VirtualBox delete the .nvram file\nFor other systems see the bios config\n\n${SBCTL_STATUS}" 17 56
+                if [ "${PACKERCI}" != "true" ] ; then
+                    SBCTL_STATUS=$(sbctl status)
+                    whiptail --title "System UEFI not in setup mode" --msgbox "SecureBoot config in bios must be in setup mode\n\nFor VirtualBox delete the .nvram file\nFor other systems see the bios config\n\n${SBCTL_STATUS}" 17 56
+                fi
+                echo "Not in Setup mode, Setting SECUREBOOT to n"
                 SECUREBOOT=n
             fi
         else
             # No /sys/firmware/efi means no UEFI means no SecureBoot
+            echo "/sys/firmware/efi doesn't exist - Setting SECUREBOOT to n"
             SECUREBOOT=n
         fi
 
         # If SecureBoot automatic signing of rEFInd and ZFSBootMenu .efi bundles should be enabled
         if [ "${SECUREBOOT}" == "y" ] ; then
             if [[ ! -v AUTOSIGN ]] ; then
-                AUTOSIGN=$(whiptail --title "Enable SecureBoot auto-signing" --yesno "Should systemd PATH watches be enabled to allow auto-signing of rEFInd and ZFSBootMenu ?\n\nNOTE: Auto-signing means ANY change to refind_x64.efi or zfsbootmenu.efi (or kernel/initramfs) will be signed, regardless of who/what made the changes.\n\nWithout auto-signing YOU must manage the signing - forgetting or mistakes can lead to the system being unbootable.  Signing is managed via the sbctl package." 17 60 3>&1 1>&2 2>&3)
+                if [ "${PACKERCI}" != "true" ] ; then
+                    AUTOSIGN=$(whiptail --title "Enable SecureBoot auto-signing" --yesno "Should systemd PATH watches be enabled to allow auto-signing of rEFInd and ZFSBootMenu ?\n\nNOTE: Auto-signing means ANY change to refind_x64.efi or zfsbootmenu.efi (or kernel/initramfs) will be signed, regardless of who/what made the changes.\n\nWithout auto-signing YOU must manage the signing - forgetting or mistakes can lead to the system being unbootable.  Signing is managed via the sbctl package." 17 60 3>&1 1>&2 2>&3)
+                else
+                    # For Packer default to Autosign YES
+                    AUTOSIGN=y
+                fi
             fi
         else
             AUTOSIGN=n
@@ -833,9 +844,9 @@ show_options() {
     echo "--------------------------------------------------------------------------------"
     echo "${FUNCNAME[0]}"
     #
-    # If script was started with one parameter "packerci" then we're running under CI/CD
-    # and using packer to build an image via qemu. That means a single disk /dev/vda was
-    # selected above and we do not want to pause here for
+    # If script was started with "-p" for Packer then we're running under CI/CD or Packer
+    # and using packer to build an image via qemu. That means the qemu disk(s) were
+    # selected above and we do not want to pause here for asking the user
     #
     if [ "${WIPE_FRESH}" == "y" ] ; then
         box_height=$(( ${#zfsdisks[@]} + 31 ))

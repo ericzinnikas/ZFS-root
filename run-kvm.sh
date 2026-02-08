@@ -5,31 +5,65 @@
 
 usage() {
     cat << USAGE
-Usage: ./run-kvm [--bios] path-to-packer-build
+Usage: ./run-kvm [OPTIONS] path-to-packer-build
+
+SecureBoot is AUTO-DETECTED from build metadata. Manual override options:
 
 Options:
-  --bios    Run VM *without* UEFI bios
-  --ram     Set ram size in MB
-  --ssh     Set a port to allow SSH into the VM (default 2222)
-            e.g. ssh -p 2222 packer@localhost -o pubkeyauthentication=no
-            Since packer builds default to packer:packer creds
+  --bios        Run VM *without* UEFI (legacy BIOS mode)
+  --secureboot  Force SecureBoot UEFI (overrides auto-detection)
+  --ram SIZE    Set RAM size in MB (default: 2048)
+  --ssh PORT    Set SSH forwarding port (default: 2222)
+                e.g. ssh -p 2222 packer@localhost -o pubkeyauthentication=no
+                Since packer builds default to packer:packer creds
+  --help        Show this help
 
   path-to-packer-build should be a directory created by
   ./run-packer.sh - typically in /qemu/builds
+
+Secureboot auto-detection checks:
+  1. build-metadata.txt for SECUREBOOT=true/false
+  2. efivars.fd for Microsoft SecureBoot signatures
+  3. Defaults to standard UEFI if detection fails
 USAGE
 }
 
 # Default ram 2GB
 RAMSIZE="${RAMSIZE:-2048}"
 SSH_PORT="${SSH_PORT:-2222}"
+OVMF=""     # Will be auto-detected or set by --secureboot flag
+
+detect_secureboot() {
+    local build_dir="$1"
+
+    # Method 1: Check for build-metadata.txt (created by newer Packer builds)
+    if [[ -f "${build_dir}/build-metadata.txt" ]]; then
+        if grep -q "^SECUREBOOT=true" "${build_dir}/build-metadata.txt" 2>/dev/null; then
+            return 0  # SecureBoot enabled
+        else
+            return 1  # SecureBoot disabled
+        fi
+    fi
+
+    # Method 2: Check efivars.fd for Microsoft signatures (fallback for older builds)
+    if [[ -f "${build_dir}/efivars.fd" ]]; then
+        if strings "${build_dir}/efivars.fd" 2>/dev/null | grep -q "Microsoft Corporation"; then
+            return 0  # SecureBoot enabled
+        fi
+    fi
+
+    # Default: assume no SecureBoot
+    return 1
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --bios)     BIOS=true ; shift ;;
-    --ram)      RAMSIZE="$2" ; shift 2 ;;
-    --ssh)      SSH_PORT="$2" ; shift 2 ;;
-    --help)     usage; exit 0 ;;
-    *)          ZFSROOT="$1" ; shift ;;
+    --bios)         BIOS=true ; shift ;;
+    --secureboot)   OVMF=OVMF_CODE_4M.secboot.fd; shift ;;
+    --ram)          RAMSIZE="$2" ; shift 2 ;;
+    --ssh)          SSH_PORT="$2" ; shift 2 ;;
+    --help)         usage; exit 0 ;;
+    *)              ZFSROOT="$1" ; shift ;;
   esac
 done
 
@@ -46,13 +80,50 @@ if [[ -z "$ZFSROOT" ]] ; then
     [[ -z "$ZFSROOT" ]] && exit 1
 fi
 
+# Auto-detect SecureBoot if not explicitly set by --secureboot flag
+if [[ -z "$OVMF" ]] && [[ -z "$BIOS" ]]; then
+    if detect_secureboot "$ZFSROOT"; then
+        OVMF="OVMF_CODE_4M.secboot.fd"
+        MACHINE_TYPE="q35"
+        SMM_ENABLED="on"
+        echo "Auto-detected SecureBoot build - using ${OVMF} with q35,smm=on"
+    else
+        OVMF="OVMF_CODE_4M.fd"
+        MACHINE_TYPE="pc"
+        SMM_ENABLED="off"
+        echo "Auto-detected standard UEFI build - using ${OVMF}"
+    fi
+elif [[ -n "$OVMF" ]]; then
+    # Manual --secureboot flag was used
+    MACHINE_TYPE="q35"
+    SMM_ENABLED="on"
+    echo "SecureBoot manually enabled - using q35,smm=on"
+else
+    # Legacy BIOS mode
+    MACHINE_TYPE="pc"
+    SMM_ENABLED="off"
+fi
+
 # If booting with UEFI we need the UEFI bios and saved efivars
+# Set above in $OVMF variable
 if [[ -z "$BIOS" ]] ; then
-    efivars=( -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd )
+    efivars=( -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/${OVMF} )
     efivars+=( -drive if=pflash,format=raw,file=${ZFSROOT}/efivars.fd )
 fi
 
+# Build machine type argument
+if [[ "$SMM_ENABLED" == "on" ]]; then
+    machine_args="-machine ${MACHINE_TYPE},smm=on,accel=kvm"
+    # Add global SMM options required for SecureBoot
+    global_args="-global driver=cfi.pflash01,property=secure,value=on"
+else
+    machine_args="-machine ${MACHINE_TYPE},accel=kvm"
+    global_args=""
+fi
+
 kvm -no-reboot -m ${RAMSIZE} \
+    ${machine_args} \
+    ${global_args} \
     ${efivars[*]} \
     $(for f in ${ZFSROOT}/*qcow* ; do echo "-drive file=${f},format=qcow2,cache=writeback " ; done) \
     -device virtio-scsi-pci,id=scsi0 \
