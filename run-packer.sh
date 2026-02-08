@@ -18,6 +18,8 @@ Options:
   --disks VALUE             (e.g. 3) [optional total; for multiple disks]
   --raidlevel VALUE         (e.g. raidz1 or mirror) only for multiple disks
   --secureboot              Enable SecureBoot (requires q35 machine and secboot OVMF firmware)
+                            Also sets SECUREBOOT=y for the ZFS-root.sh config
+                            Must manually set "--set AUTOSIGN=y" if auto-signing of boot files required
   --iso-src VALUE           (e.g. file:///qemu/ISOs) defaults to download
   --set KEY=VALUE           Override config variables (can be used multiple times)
   --help                    Show this help
@@ -130,6 +132,11 @@ if [[ -z "$NAME" && -n "$VER" ]]; then
           exit 1
           ;;
     esac
+fi
+
+# If --secureboot was specified, ensure ZFS-root.sh also enables SecureBoot
+if [[ "${SECUREBOOT}" == "true" ]]; then
+    CONFIG_OVERRIDES+=("SECUREBOOT=y")
 fi
 
 packer_args=( -var-file=ZFS-root_local.vars.hcl )
