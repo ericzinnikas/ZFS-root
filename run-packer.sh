@@ -304,7 +304,23 @@ packer_direct() {
 
     export PACKER_PLUGIN_PATH=${QEMU_ROOT}/packer.d/plugins
     export PACKER_LOG=1
-    packer build ${packer_args[*]} ZFS-root_local.pkr.hcl
+
+    # Use fifo + tee for live output while capturing to file
+    mkfifo /tmp/packer-pipe
+    tee /tmp/packer-output.log < /tmp/packer-pipe &
+    TEE_PID=$!
+
+    packer build ${packer_args[*]} ZFS-root_local.pkr.hcl > /tmp/packer-pipe
+
+    BUILD_EXIT=$?
+    wait $TEE_PID
+    rm -f /tmp/packer-pipe
+
+    # Extract output directory from packer log
+    OUTPUT_DIR=$(grep -o '/qemu/builds/packer-[^/]*' /tmp/packer-output.log | head -1)
+    if [ -n "$OUTPUT_DIR" ] && [ -d "$OUTPUT_DIR" ]; then
+      cp /tmp/packer-output.log "$OUTPUT_DIR/packer-output.log"
+    fi
 }
 
 check_disks
