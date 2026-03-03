@@ -10,13 +10,14 @@ Usage: ./run-kvm [OPTIONS] path-to-packer-build
 SecureBoot is AUTO-DETECTED from build metadata. Manual override options:
 
 Options:
-  --bios        Run VM *without* UEFI (legacy BIOS mode)
-  --secureboot  Force SecureBoot UEFI (overrides auto-detection)
-  --ram SIZE    Set RAM size in MB (default: 2048)
-  --ssh PORT    Set SSH forwarding port (default: 2222)
-                e.g. ssh -p 2222 packer@localhost -o pubkeyauthentication=no
-                Since packer builds default to packer:packer creds
-  --help        Show this help
+  --bios          Run VM *without* UEFI (legacy BIOS mode)
+  --secureboot    Force SecureBoot UEFI (overrides auto-detection)
+  --ram SIZE      Set RAM size in MB (default: 2048)
+  --ssh PORT      Set SSH forwarding port (default: 2222)
+                  e.g. ssh -p 2222 packer@localhost -o pubkeyauthentication=no
+                  Since packer builds default to packer:packer creds
+  --dropbear PORT Set SSH forwarding port for Dropbear (default: 1222)
+  --help          Show this help
 
   path-to-packer-build should be a directory created by
   ./run-packer.sh - typically in /qemu/builds
@@ -30,8 +31,11 @@ USAGE
 
 # Default ram 2GB
 RAMSIZE="${RAMSIZE:-2048}"
-SSH_PORT="${SSH_PORT:-2222}"
-OVMF=""     # Will be auto-detected or set by --secureboot flag
+SSH_PORT="${SSH_PORT:-2222}"            # Main ssh port to booted system, NAT'd to ssh at 22
+# Dropbear SSH port NAT'd to dropbear at 222
+# Connect with 'ssh -p 1222 root@localhost`
+DROPBEAR_PORT="${DROPBEAR_PORT:-1222}"  
+OVMF=""                                 # Will be auto-detected or set by --secureboot flag
 
 detect_secureboot() {
     local build_dir="$1"
@@ -62,6 +66,7 @@ while [[ $# -gt 0 ]]; do
     --secureboot)   OVMF=OVMF_CODE_4M.secboot.fd; shift ;;
     --ram)          RAMSIZE="$2" ; shift 2 ;;
     --ssh)          SSH_PORT="$2" ; shift 2 ;;
+    --dropbear)     DROPBEAR_PORT="$2" ; shift 2 ;;
     --help)         usage; exit 0 ;;
     *)              ZFSROOT="$1" ; shift ;;
   esac
@@ -127,5 +132,6 @@ kvm -no-reboot -m ${RAMSIZE} \
     ${efivars[*]} \
     $(for f in ${ZFSROOT}/*qcow* ; do echo "-drive file=${f},format=qcow2,cache=writeback " ; done) \
     -device virtio-scsi-pci,id=scsi0 \
-    -device virtio-net-pci,netdev=user.0 \
-    -netdev user,id=user.0,hostfwd=tcp::${SSH_PORT}-:22 &
+    -device virtio-net-pci,netdev=net0 \
+    -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22,hostfwd=tcp::${DROPBEAR_PORT}-:222   # KVM-local network, need NAT to ssh in
+    # -netdev bridge,id=net0,br=br0 &   # Attach to bridge br0 for local networking

@@ -100,7 +100,15 @@ Options:
 | `--bios` | Force legacy BIOS mode (no UEFI) |
 | `--secureboot` | Force SecureBoot (overrides auto-detect) |
 | `--ram SIZE` | RAM in MB (default: 2048) |
-| `--ssh PORT` | SSH forwarding port (default: 2222) |
+| `--ssh PORT` | SSH forwarding port - default: 2222 (NAT'd to 22) |
+| `--dropbear PORT` | SSH forwarding port for Dropbear - default: 1222 (NAT'd to 222)<br>NOTE: **requires** an ssh key defined |
+
+SSH into an encrypted booting VM with:
+
+```
+# Use your default ssh keys or specify which key to use
+ssh -p 1222 [-i path/to/key] root@localhost
+```
 
 SSH into the running VM with:
 
