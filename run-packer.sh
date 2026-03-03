@@ -306,6 +306,7 @@ packer_direct() {
     export PACKER_LOG=1
 
     # Use fifo + tee for live output while capturing to file
+    trap 'rm -f /tmp/packer-pipe; kill $TEE_PID 2>/dev/null || true' EXIT
     mkfifo /tmp/packer-pipe
     tee /tmp/packer-output.log < /tmp/packer-pipe &
     TEE_PID=$!
@@ -314,7 +315,6 @@ packer_direct() {
 
     BUILD_EXIT=$?
     wait $TEE_PID
-    rm -f /tmp/packer-pipe
 
     # Extract output directory from packer log
     OUTPUT_DIR=$(grep -o '/qemu/builds/packer-[^/]*' /tmp/packer-output.log | head -1)

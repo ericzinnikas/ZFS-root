@@ -126,12 +126,18 @@ else
     global_args=""
 fi
 
-kvm -no-reboot -m ${RAMSIZE} \
+# Add '-display none' for no gui interface when VM starts
+qemu-system-x86_64 -no-reboot -m ${RAMSIZE} \
     ${machine_args} \
     ${global_args} \
+    -daemonize -pidfile /tmp/qemu-vm.pid \
     ${efivars[*]} \
     $(for f in ${ZFSROOT}/*qcow* ; do echo "-drive file=${f},format=qcow2,cache=writeback " ; done) \
     -device virtio-scsi-pci,id=scsi0 \
     -device virtio-net-pci,netdev=net0 \
     -netdev user,id=net0,hostfwd=tcp::${SSH_PORT}-:22,hostfwd=tcp::${DROPBEAR_PORT}-:222   # KVM-local network, need NAT to ssh in
     # -netdev bridge,id=net0,br=br0 &   # Attach to bridge br0 for local networking
+
+# Write the QEMU PID to a file for scripts that need to track it
+# echo $! > /tmp/qemu-vm.pid
+echo "QEMU started with PID $(cat /tmp/qemu-vm.pid)"
