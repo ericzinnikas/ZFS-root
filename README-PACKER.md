@@ -125,8 +125,10 @@ packer-noble-NOENC-2026-02-08-1234/
 ├── packer-noble-NOENC-2026-02-08-1234.qcow2    # Primary disk
 ├── packer-noble-NOENC-2026-02-08-1234.qcow2-1  # Additional disk (if multi-disk)
 ├── efivars.fd                                   # UEFI variables
-├── build.log                                    # ZFS-root.sh installation log
 ├── build-metadata.txt                           # Build settings for run-kvm.sh
+├── build.log                                    # ZFS-root.sh installation log
+├── packer-output.log                            # Full log from `packer build ...` command
 ├── manifest.json                                # Packer manifest
+├── ZFS-root_final.conf                          # Final ZFS-root.conf used for build
 └── *.sha256.checksum                            # Disk checksums
 ```

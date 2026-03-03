@@ -1,0 +1,433 @@
+# ZFS-root Pre-Reboot Smoke Tests
+# Run inside packer VM after ZFS-root.sh completes, before reboot
+#
+# Required variables (passed via vars_inline or vars_file):
+#   poolname: ZFS pool name (e.g., "noble")
+#   suite: Ubuntu version name (e.g., "noble", "jammy")
+#   username: Main user created (e.g., "packer")
+#   discenc: Encryption mode (NOENC, ZFSENC, LUKS)
+#   zrepl: Whether zrepl is installed (y/n)
+#   secureboot: Whether SecureBoot is enabled (y/n)
+#   rescue: Whether rescue dataset was created (y/n)
+#   hibernate: Whether hibernation is enabled (y/n)
+#   size_swap: Swap size in MB (e.g., "300", "0" for none)
+
+# =============================================================================
+# ZFS Pool and Dataset Checks
+# =============================================================================
+
+command:
+  # Verify pool exists and is healthy
+  zpool-status:
+    exec: "zpool status {{ .Vars.poolname }}"
+    exit-status: 0
+    stdout:
+      - "state: ONLINE"
+    timeout: 10000
+
+  # Verify expected datasets exist
+  zfs-datasets:
+    exec: "zfs list -H -o name -t filesystem -r {{ .Vars.poolname }}"
+    exit-status: 0
+    stdout:
+      - "{{ .Vars.poolname }}/ROOT"
+      - "{{ .Vars.poolname }}/ROOT/{{ .Vars.suite }}"
+      - "{{ .Vars.poolname }}/home"
+      - "{{ .Vars.poolname }}/home/{{ .Vars.username }}"
+      - "{{ .Vars.poolname }}/home/root"
+    timeout: 10000
+
+  # Verify bootfs is set correctly
+  zfs-bootfs:
+    exec: "zpool get -H -o value bootfs {{ .Vars.poolname }}"
+    exit-status: 0
+    stdout:
+      - "{{ .Vars.poolname }}/ROOT/{{ .Vars.suite }}"
+    timeout: 10000
+
+  # Verify root user dataset has correct mountpoint
+  zfs-user-root:
+    exec: "zfs get -H -o value mountpoint {{ .Vars.poolname }}/home/root"
+    exit-status: 0
+    stdout:
+      - "/root"
+    timeout: 10000
+
+  # Verify main user dataset has correct mountpoint
+  zfs-user-home:
+    exec: "zfs get -H -o value mountpoint {{ .Vars.poolname }}/home/{{ .Vars.username }}"
+    exit-status: 0
+    stdout:
+      - "/home/{{ .Vars.username }}"
+    timeout: 10000
+
+  # Verify compression is enabled on root dataset (performance)
+  # Only lz4 is used - zstd is not currently enabled
+  zfs-compression-root:
+    exec: "zfs get -H -o value compression {{ .Vars.poolname }}/ROOT/{{ .Vars.suite }}"
+    exit-status: 0
+    stdout:
+      - "lz4"
+    timeout: 10000
+
+  # Verify compression is enabled on home dataset
+  zfs-compression-home:
+    exec: "zfs get -H -o value compression {{ .Vars.poolname }}/home"
+    exit-status: 0
+    stdout:
+      - "lz4"
+    timeout: 10000
+
+  # Verify atime=off for performance
+  zfs-atime-root:
+    exec: "zfs get -H -o value atime {{ .Vars.poolname }}/ROOT/{{ .Vars.suite }}"
+    exit-status: 0
+    stdout:
+      - "off"
+    timeout: 10000
+
+  # Check rescue dataset exists if RESCUE=y
+  {{- if eq .Vars.rescue "y" }}
+  zfs-rescue-dataset:
+    exec: "zfs list -H -o name {{ .Vars.poolname }}/ROOT/{{ .Vars.suite}}_rescue_base"
+    exit-status: 0
+    timeout: 10000
+  {{- end }}
+
+  # Check swap zvol exists (if HIBERNATE=n and SIZE_SWAP > 0 and not LUKS)
+  {{- if and (ne .Vars.size_swap "0") (ne .Vars.discenc "LUKS") }}
+  zfs-swap-volume:
+    exec: "zfs list -H -o name {{ .Vars.poolname }}/ROOT/swap"
+    exit-status: 0
+    timeout: 10000
+  {{- end }}
+
+  # Encryption checks - conditional based on discenc
+  {{- if eq .Vars.discenc "ZFSENC" }}
+  zfs-encryption-root:
+    exec: "zfs get -H -o value encryption {{ .Vars.poolname }}/ROOT"
+    exit-status: 0
+    stdout:
+      - "aes-256-gcm"
+    timeout: 10000
+
+  zfs-encryption-home:
+    exec: "zfs get -H -o value encryption {{ .Vars.poolname }}/home"
+    exit-status: 0
+    stdout:
+      - "aes-256-gcm"
+    timeout: 10000
+  {{- end }}
+
+  {{- if eq .Vars.discenc "NOENC" }}
+  zfs-no-encryption:
+    exec: "zfs get -H -o value encryption {{ .Vars.poolname }}/ROOT"
+    exit-status: 0
+    stdout:
+      - "off"
+    timeout: 10000
+  {{- end }}
+
+  luks-header:
+    exec: "cryptsetup IsLuks /dev/disk/by-partlabel/ZFS_0"
+    {{- if eq .Vars.discenc "LUKS" }}
+    exit-status: 0
+    {{- else }}
+    exit-status: 1
+    {{- end }}
+
+  # LUKS-specific: check crypttab exists
+  {{- if eq .Vars.discenc "LUKS" }}
+  luks-crypttab:
+    exec: "cat /etc/crypttab"
+    exit-status: 0
+    stdout:
+      - "root_crypt"
+    timeout: 10000
+  {{- end }}
+
+  # ZFSBootMenu config file exists (only when built from LOCAL source)
+  # When ZFSBOOTMENU_BINARY_TYPE=LOCAL, the config.yaml is generated
+  {{- if eq .Vars.zfsbootmenu_binary_type "LOCAL" }}
+  zfsbootmenu-config:
+    exec: "cat /etc/zfsbootmenu/config.yaml"
+    exit-status: 0
+    timeout: 10000
+  {{- end }}
+
+  # rEFInd config exists
+  refind-config:
+    exec: "cat /boot/efi/EFI/refind/refind.conf"
+    exit-status: 0
+    timeout: 10000
+
+  # SecureBoot checks - conditional
+  {{- if eq .Vars.secureboot "y" }}
+  sbctl-installed:
+    exec: "which sbctl"
+    exit-status: 0
+    timeout: 10000
+
+  sbctl-status:
+    exec: "sbctl status"
+    exit-status: 0
+    stdout:
+      - "Enabled"
+    timeout: 10000
+
+  # Verify rEFInd is signed
+  refind-signed:
+    exec: "sbverify --list /boot/efi/EFI/refind/refind_x64.efi"
+    exit-status: 0
+    stdout:
+      - "signature"
+    timeout: 10000
+  {{- end }}
+
+  # Dropbear in ZFSBootMenu (if enabled for ZFSENC or LUKS)
+  # Note: Dropbear is in /etc/zfsbootmenu/dracut.conf.d/, NOT /etc/dracut.conf.d/
+  {{- if eq .Vars.dropbear "y" }}
+  dropbear-in-zfsbootmenu:
+    exec: "ls /etc/zfsbootmenu/dracut.conf.d/*dropbear* 2>/dev/null"
+    exit-status: 0
+    stdout:
+      - "dropbear"
+    timeout: 10000
+  {{- end }}
+
+# =============================================================================
+# Critical File Checks
+# =============================================================================
+
+file:
+  /etc/fstab:
+    exists: true
+    contents:
+      - "/boot/efi"
+      - "vfat"
+    owner: root
+    group: root
+
+  # SecureBoot checks - conditional
+  {{- if eq .Vars.secureboot "y" }}
+  /etc/apt/sources.list.d/secureboot.sources:
+    exists: true
+    contents:
+      - "/usr/share/keyrings/secureboot.gpg"
+      - "http://download.opensuse.org/repositories/home:/jloeser:/secureboot/xUbuntu_"
+    owner: root
+    group: root
+  {{- end }}
+
+  # Dropbear in ZFSBootMenu (if enabled for ZFSENC or LUKS)
+  # Note: Dropbear is in /etc/zfsbootmenu/dracut.conf.d/, NOT /etc/dracut.conf.d/
+  {{- if eq .Vars.dropbear "y" }}
+  /etc/zfsbootmenu/dracut.conf.d/zfsbootmenu.conf:
+    exists: true
+    contents:
+      - "zfsbootmenu"
+      - "bash"
+    owner: root
+    group: root
+
+  /etc/zfsbootmenu/dracut.conf.d/dropbear.conf:
+    exists: true
+    contents:
+      - "crypt-ssh"
+      - "dracut-network.conf"
+      - "dropbear_acl=/home/{{ .Vars.username }}/.ssh/authorized_keys"
+    owner: root
+    group: root
+  {{- end }}
+
+  # Dracut ZFS configuration for MAIN SYSTEM (100-zol.conf is the actual filename)
+  /etc/dracut.conf.d/100-zol.conf:
+    exists: true
+    owner: root
+    group: root
+
+  # ZFSBootMenu directory (lowercase 'zfsbootmenu')
+  /boot/efi/EFI/zfsbootmenu:
+    exists: true
+    filetype: directory
+
+  # rEFInd boot manager
+  /boot/efi/EFI/refind:
+    exists: true
+    filetype: directory
+
+  # User home directory with correct ownership
+  /home/{{ .Vars.username }}:
+    exists: true
+    filetype: directory
+    owner: "{{ .Vars.username }}"
+    group: "{{ .Vars.username }}"
+
+  # Root home directory
+  /root:
+    exists: true
+    filetype: directory
+    owner: root
+    group: root
+
+  # Only for LUKS encryption
+  {{- if eq .Vars.discenc "LUKS" }}
+  /etc/zfs/zroot.lukskey:
+    exists: true
+    mode: "0400"
+    owner: root
+    group: root
+
+  /etc/dracut.conf.d/lukskey.conf:
+    exists: true
+    contents:
+      - "zroot.lukskey"
+    mode: "0644"
+    owner: root
+    group: root
+
+  ## # Only needed for 24.04 and below - TODO compare version for conditional
+  ## # Unlock script should be in place, with a few key phrases inside
+  ## /usr/local/bin/zfsbootmenu_luks_unlock.sh:
+  ##   exists: true
+  ##   contents:
+  ##     - "ZFS_PARTS"
+  ##     - "cryptsetup"
+  ##   mode: '0755'
+  ##   owner: root
+  ##   group: root
+
+  /etc/dracut.conf.d/luks_support.conf:
+    exists: true
+    contents:
+      - "crypt"
+    owner: root
+    group: root
+
+  {{- if eq .Vars.hibernate "y" }}
+  /etc/dracut.conf.d/swap-crypt.conf:
+    exists: true
+    contents:
+      - "resume=/dev/mapper/swap_crypt0"
+    owner: root
+    group: root
+  {{- end}}
+  {{- end}}
+
+  # Only for native ZFS encryption
+  {{- if eq .Vars.discenc "ZFSENC" }}
+  # ZFS key file for ZFSENC - stored in root dataset, unlocked at boot
+  /etc/zfs/zroot.rootkey:
+    exists: true
+    mode: "0000"
+    owner: root
+
+  # ZFS key file for ZFSENC - stored in root dataset, unlocked at boot
+  /etc/zfs/zroot.homekey:
+    exists: true
+    mode: "0000"
+    owner: root
+
+  # For ZFSENC we need to set up a script and systemd unit to load the keyfile
+  # Just check for a few things in script
+  /usr/bin/zfs-multi-mount.sh:
+    exists: true
+    contents:
+      - "ask_password"
+      - "load_key"
+    mode: "0755"
+    owner: root
+    group: root
+
+  /etc/systemd/system/zfs-load-key.service:
+    exists: true
+    contents:
+      - "Import keys for all datasets"
+      - "ExecStart=/usr/bin/zfs-multi-mount.sh --systemd {{ .Vars.poolname }}/home"
+    mode: "0644"
+    owner: root
+    group: root
+
+  /etc/dracut.conf.d/zfskey.conf:
+    exists: true
+    contents:
+      - "zroot.rootkey"
+      - "zroot.homekey"
+    owner: root
+    group: root
+  {{- end }}
+
+  # Hibernate configuration
+  {{- if eq .Vars.hibernate "y" }}
+  /etc/dracut.conf.d/resume-swap-systemd.conf:
+    exists: true
+    contents:
+      - "/usr/lib/systemd/system/systemd-hibernate-resume.service"
+    owner: root
+    group: root
+
+  /etc/dracut.conf.d/resume-from-hibernate.conf:
+    exists: true
+    contents:
+      - "resume"
+    owner: root
+    group: root
+  {{- end }}
+
+  # Zrepl configuration
+  {{- if eq .Vars.zrepl "y" }}
+  /etc/zrepl/zrepl.yml:
+    exists: true
+    owner: root
+    group: root
+  {{- end }}
+
+# =============================================================================
+# Package Installation Checks
+# =============================================================================
+
+package:
+  zfsutils-linux:
+    installed: true
+
+  zfs-dracut:
+    installed: true
+
+  refind:
+    installed: true
+
+  {{- if eq .Vars.zrepl "y" }}
+  zrepl:
+    installed: true
+  {{- end }}
+
+# =============================================================================
+# User Checks
+# =============================================================================
+
+user:
+  {{ .Vars.username }}:
+    exists: true
+    home: "/home/{{ .Vars.username }}"
+    groups:
+      - sudo
+
+  root:
+    exists: true
+    home: /root
+
+# =============================================================================
+# Service Enablement Checks (not running - system hasn't booted yet)
+# =============================================================================
+
+service:
+  zfs-mount:
+    enabled: true
+
+  zfs-import-cache:
+    enabled: true
+
+  {{- if eq .Vars.zrepl "y" }}
+  zrepl:
+    enabled: true
+  {{- end }}

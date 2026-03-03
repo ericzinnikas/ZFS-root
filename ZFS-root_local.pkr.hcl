@@ -255,6 +255,11 @@ build {
   }
 
   provisioner "file" {
+    source      = "packer-validation"
+    destination = "/tmp/"
+  }
+
+  provisioner "file" {
     source      = "./95zfs-rootflags-fix"
     destination = "/tmp/"
   }
@@ -284,6 +289,13 @@ build {
       # Rename log to include variant for host-side clarity
       "mv /root/ZFS-setup.log /tmp/ZFS-setup-${local.variant}.log"
     ]
+  }
+
+  # Push the config file used back to host machine
+  provisioner "file" {
+    source      = "/tmp/final.conf"
+    destination = "${var.output_prefix}${local.output_dir}/ZFS-root_final.conf"
+    direction   = "download"
   }
 
   # Push the debug output back to host machine
@@ -318,7 +330,9 @@ build {
     files = concat(
       [
         "${var.output_prefix}${local.output_dir}/build.log",
-        "${var.output_prefix}${local.output_dir}/manifest.json"
+        "${var.output_prefix}${local.output_dir}/manifest.json",
+        "${var.output_prefix}${local.output_dir}/ZFS-root_final.conf",
+        "${var.output_prefix}${local.output_dir}/packer-output.log"
       ],
       local.all_disk_files
     )
