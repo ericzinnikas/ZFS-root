@@ -1636,7 +1636,7 @@ cat >> ${ZFSBUILD}/root/Setup.sh << '__EOF__'
         MAX_RETRIES=5
         # Initial delay between retries (in seconds)
         DELAY=10
-    
+
         for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i to download from $url..."
             # Odd, curl fails for memtest86 downloads
@@ -2734,8 +2734,8 @@ cat >> ${ZFSBUILD}/root/Setup.sh << '__EOF__'
     # If UEFI SecureBoot should be enabled - NOTE: only available for noble/24.04
     # Local building requires golang asciidoc-base pkgconf pkgconf-bin libpcsclite-dev
     # To build locally need libpcsclite-dev libpcsclite1 golang-go sbsigntool
-    if [[ ! -v SECUREBOOT || "$SECUREBOOT" != "n" ]]; then
-        if [[ -d /sys/firmware/efi && "${SUITE}" == "noble" ]] ; then
+    if [[ ! -v SECUREBOOT ]] || [[ "$SECUREBOOT" != "n" ]]; then
+        if [[ -d /sys/firmware/efi ]] && [[ "${SUITE}" == "noble" ]] ; then
             # Create apt sources for sbctl
             curl -fsSL https://download.opensuse.org/repositories/home:jloeser:secureboot/xUbuntu_${SUITE_NUM}/Release.key | gpg --dearmor | sudo tee /usr/share/keyrings/secureboot.gpg > /dev/null
 
