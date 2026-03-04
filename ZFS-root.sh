@@ -3547,6 +3547,9 @@ chmod +x ${ZFSBUILD}/root/Setup.sh
 # copied to /usr/lib/dracut/modules.d/ in Setup.sh
 cp -av 95zfs-rootflags-fix ${ZFSBUILD}/root
 
+# Copy the Validation suite to the main user home dir
+cp -av packer-validation ${ZFSBUILD}/home/${USERNAME}
+
 # Bind mount virtual filesystem, create Setup.sh, then chroot
 mount -t proc /proc ${ZFSBUILD}/proc
 mount -t sysfs sys  ${ZFSBUILD}/sys
