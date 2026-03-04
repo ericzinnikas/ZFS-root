@@ -1084,6 +1084,7 @@ partition_disks() {
             if [ "${DISCENC}" != "NOENC" ] ; then
                 # ZFS or LUKS Encrypted - should be partition type 8309 (Linux LUKS)
                 sgdisk -n ${PARTITION_SWAP}:0:+${SIZE_SWAP}M -c ${PARTITION_SWAP}:"SWAP_${disk}" -t ${PARTITION_SWAP}:8309 /dev/disk/by-id/${zfsdisks[${disk}]}
+                apt-get -qq --no-install-recommends --yes install cryptsetup
             else
                 sgdisk -n ${PARTITION_SWAP}:0:+${SIZE_SWAP}M -c ${PARTITION_SWAP}:"SWAP_${disk}" -t ${PARTITION_SWAP}:8200 /dev/disk/by-id/${zfsdisks[${disk}]}
             fi # DISCENC for ZFS or LUKS
