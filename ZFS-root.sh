@@ -2000,10 +2000,18 @@ cat >> ${ZFSBUILD}/root/Setup.sh << '__EOF__'
     fi # if LUKS
 
     if [ "${HIBERNATE}" = "y" ] ; then
+        # Needed for any hibernation resume to work, encrypted or not
         # NOTE: be sure to use real TABS for this heredoc
         cat <<- END > /etc/dracut.conf.d/resume-from-hibernate.conf
 			# Needed for resuming from swap
 			add_dracutmodules+=" resume "
+		END
+
+        # NOTE: be sure to use real TABS for this heredoc
+        cat <<- END > /etc/dracut.conf.d/resume-swap-systemd.conf
+			# Ensure systemd-hibernate-resume is available
+			# add_device+=" UUID=$(blkid -s UUID -o value /dev/disk/by-id/${zfsdisks[0]}-part${PARTITION_SWAP}) "
+			install_items+=" /usr/lib/systemd/system/systemd-hibernate-resume.service "
 		END
 
         # Although we have systemd-hibernate, also install pm-utils for pm-hibernate
@@ -2046,14 +2054,6 @@ cat >> ${ZFSBUILD}/root/Setup.sh << '__EOF__'
             ZBM_COMMANDLINE=$(zfs get -H -o value org.zfsbootmenu:commandline ${POOLNAME}/ROOT/${SUITE})
             zfs set org.zfsbootmenu:commandline="${ZBM_COMMANDLINE} resume=${SWAP_UUID}" ${POOLNAME}/ROOT/${SUITE}
         fi
-
-        # Needed for any hibernation resume to work, encrypted or not
-        # NOTE: be sure to use real TABS for this heredoc
-        cat <<- END > /etc/dracut.conf.d/resume-swap-systemd.conf
-			# Ensure systemd-hibernate-resume is available
-			# add_device+=" UUID=$(blkid -s UUID -o value /dev/disk/by-id/${zfsdisks[0]}-part${PARTITION_SWAP}) "
-			install_items+=" /usr/lib/systemd/system/systemd-hibernate-resume.service "
-		END
         # Hibernate
     fi # Hibernate
 
