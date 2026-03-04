@@ -1371,6 +1371,7 @@ setup_network_config() {
 		network:
 		  version: 2
 		  renderer: networkd
+		  # renderer: NetworkManager
 		  ethernets:
 		    alleths:
 		      optional: true
@@ -1378,7 +1379,7 @@ setup_network_config() {
 		        name: e*
 		      dhcp4: true
 		      dhcp6: true
-		      wakeonlan: true
+		      # wakeonlan: true
 		      # === With the bridge config below, set dhcp to false
 		      # dhcp4: false
 		      # dhcp6: false
@@ -1392,7 +1393,7 @@ setup_network_config() {
 		#     mtu: 9000
 		#     dhcp4: yes
 		#     dhcp6: yes
-		#     wakeonlan: true
+		#     # wakeonlan: true
 		#     # === Only need routes: or gateway4: if NOT using DHCP
 		#     # === gateway4 is deprecated, use routes instead
 		#     # gateway4: 192.168.2.4
@@ -1409,7 +1410,7 @@ setup_network_config() {
 		#       addresses: [127.0.0.53, 8.8.8.8, 8.8.4.4]
 		#     parameters:
 		#       stp: false
-		#       forward-delay: 4
+		#       forward-delay: 0
 	EOF
 } # setup_network_config()
 
